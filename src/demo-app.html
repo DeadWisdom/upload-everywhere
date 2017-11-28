@@ -80,6 +80,14 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
       app-drawer {
         border-right: 1px solid #ccc;
       }
+
+      h1 {
+        font-size: 16px;
+        margin: 4px 15px -8px;
+        color: #666;
+        font-weight: normal;
+        line-height: 20px;
+      }
     </style>
 
     <app-location
@@ -98,6 +106,9 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
       <!-- Drawer content -->
       <app-drawer id="drawer" slot="drawer" swipe-open="[[narrow]]">
         <app-toolbar><img src="../images/gg_logo.png"> Upload Everywhere</app-toolbar>
+
+        <h1>Guatemalan Women's Cross Generational Development</h1>
+
         <iron-selector selected="[[page]]" attr-for-selected="name" class="drawer-list" role="navigation">
           <a name="village-files" href="[[rootPath]]files">Project Files</a>
           <a name="view2" href="[[rootPath]]view2">Project Leaders</a>
