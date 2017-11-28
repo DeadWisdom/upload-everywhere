@@ -1,0 +1,171 @@
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+<link rel="import" href="../bower_components/paper-progress/paper-progress.html">
+<link rel="import" href="../bower_components/paper-slider/paper-slider.html">
+<link rel="import" href="../bower_components/iron-image/iron-image.html">
+<link rel="import" href="shared-styles.html">
+<link rel="import" href="file-plate.html">
+
+<script type="text/javascript" src="md5.min.js"></script>
+
+<dom-module id="village-files">
+  <template>
+    <style include="shared-styles">
+      :host {
+        display: block;
+        padding: 0px;
+      }
+
+      .files {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+
+        --iron-image-width: 32px;
+        --iron-image-height: 32px;
+      }
+
+      .control {
+        background-color: white;
+        padding: 10px;
+        color: #888;
+      }
+
+      .info {
+        display: flex;
+        align-items: stretch;
+        font-size: 12px;
+        line-height: 40px;
+      }
+
+      paper-slider {
+      }
+    </style>
+
+    <div class="files">
+      <template is="dom-repeat" items="[[ files ]]">
+        <file-plate file="[[ item ]]" send-spacing="[[sendSpacing]]" on-update="_onFileUpdated" on-delete="_onDelete"></file-plate>
+      </template>
+    </div>
+
+    <div class="control">
+      <div>
+        <input on-change="_uploadFile" type="file" id="add-file" multiple>
+      </div>
+
+      <div class="info">
+        <paper-slider min="1" max="5000" value="{{ sendSpacing }}"></paper-slider>
+        <div>[[ sendSpacing ]] millisecond delay</div>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    function base64EncodeString(str) {
+      return window.btoa(unescape(encodeURIComponent(str)));
+    }
+
+    function base64EncodeInteger(int) {
+      return base64EncodeString(String.fromCharCode(parseInt(int)));
+    }
+
+    class VillageFiles extends Polymer.Element {
+      static get is() { return 'village-files'; }
+
+      static get properties() {
+        return {
+          files: {
+            type: Array,
+            value: []
+          },
+          sendSpacing: {
+            type: Number,
+            value: 300
+          }
+        }
+      }
+
+      ready () {
+        super.ready();
+
+        var manifestRaw = localStorage.getItem("manifest");
+        if (!manifestRaw) return;
+
+        var manifest = JSON.parse(manifestRaw);
+        var files = [];
+        manifest.forEach((item) => {
+          item.src = localStorage.getItem(item.hash);
+          this.push('files', item);
+        });
+      }
+
+      _uploadFile(e) {
+        Array.prototype.forEach.call(e.target.files, (file) => {
+          this._addFile(file);
+        });
+      }
+
+      _addFile(file) {
+        var index = this.files.length;
+
+        var reader  = new FileReader();
+        reader.addEventListener("load", () => {
+          this.push('files', file);
+          file.src = reader.result
+          file.hash = md5(reader.result);
+          file.propagated = 0;
+          file.device = this.deviceName;
+          this.notifyPath('files.' + index + '.src');
+          this._saveManifest(true);
+        }, false);
+
+        reader.readAsDataURL(file);
+      }
+
+      _saveManifest(andSaveFiles) {
+        var manifest = this.files.map(function(file) {
+          if (andSaveFiles) {
+            localStorage.setItem(file.hash, file.src);
+          }
+
+          return {
+            name: file.name,
+            hash: file.hash,
+            size: parseInt(file.size),
+            lastModified: parseInt(file.lastModified),
+            device: file.device,
+            propagated: file.propagated
+          }
+        });
+
+        localStorage.setItem('manifest', JSON.stringify(manifest));
+      }
+
+      _onFileUpdated(e) {
+        this._saveManifest();
+      }
+
+      deleteFile(hash) {
+        var files = [];
+        this.files.forEach((file) => {
+          if (file.hash == hash) {
+            localStorage.removeItem(file.hash);
+            file.deleted = true;
+          } else {
+            files.push(file);
+          }
+        });
+        this.files = files;
+        this._saveManifest();
+      }
+
+      _onDelete(e) {
+        e.preventDefault();
+        this.deleteFile(e.model.item.hash);
+      }
+    }
+
+    window.customElements.define(VillageFiles.is, VillageFiles);
+  </script>
+</dom-module>

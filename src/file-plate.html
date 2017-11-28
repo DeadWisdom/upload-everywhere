@@ -1,0 +1,244 @@
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+<link rel="import" href="../bower_components/paper-progress/paper-progress.html">
+<link rel="import" href="../bower_components/iron-image/iron-image.html">
+<link rel="import" href="shared-styles.html">
+
+<script type="text/javascript" src="md5.min.js"></script>
+
+<dom-module id="file-plate">
+  <template>
+    <style include="shared-styles">
+      :host {
+        display: block;
+        position: relative;
+        margin: 0;
+        background-color: white;
+        --paper-progress-height: 100%;
+        --paper-progress-active-color: #b6b52f7a;
+        --paper-progress-container-color: #f5f5f5;
+      }
+
+      .detail {
+        position: relative;
+        padding: 4px 12px;
+        display: flex;
+        justify-content: flex-start;
+        align-items: center;
+      }
+
+      iron-image {
+        margin: 4px 10px 4px 4px;
+        width: 32px;
+        height: 32px;
+      }
+
+      img {
+        width: 32px;
+      }
+
+      .controls {
+        display: flex;
+        justify-content: flex-end;
+        flex-grow: 100;
+      }
+
+      paper-progress {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        top: 0;
+        height: auto;
+        width: auto;
+      }
+
+      .info {
+        color: #888;
+        font-size: 12px;
+        margin-left: 10px;
+      }
+    </style>
+
+    <template is="dom-if" if="[[sending]]">
+      <paper-progress value="[[progress]]"></paper-progress>
+    </template>
+    <div class="detail">
+      <iron-image src="[[file.src]]" sizing="cover"></iron-image> 
+      [[file.name]]
+      <template is="dom-if" if="[[sending]]">
+        <div class="info">([[file.propagated]] of [[packetCount]] packets)</div>
+      </template>
+      <template is="dom-if" if="[[!sending]]">
+        <div class="info">(uploaded)</div>
+      </template>
+      <div class="controls">
+        <paper-icon-button icon="my-icons:close" on-click="_handleDelete"></paper-icon-button>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    class FilePlate extends Polymer.Element {
+      static get is() { return 'file-plate'; }
+
+      static get properties() {
+        return {
+          file: {
+            type: Object,
+            observer: 'sendFile'
+          },
+          deviceName: {
+            type: String,
+            value: "007"
+          },
+          endpointPhoneNumber: {
+            type: String,
+            value: '267-214-9845'
+          },
+          endpointURL: {
+            type: String,
+            value: "https://whsnt3h23d.execute-api.us-east-2.amazonaws.com/prod/"
+          },
+          mode: {
+            type: String,
+            value: 'HTTP'
+          },
+          sendSpacing: {
+            type: Number,
+            value: 100
+          },
+          sending: {
+            type: Boolean,
+            value: false
+          },
+          progress: {
+            type: Number,
+            computed: '_getProgress(file.propagated, file.src)'
+          },
+          packetCount: {
+            type: Number,
+            computed: '_getPacketCount(file.src)'
+          }
+        };
+      }
+
+      sendFile(file) {
+        if (!file) {
+          return;
+        }
+
+        this.sending = true;
+        setTimeout(() => {
+          if (this.sending && !file.deleted) {
+            this._sendNextFrame(file);
+          }
+        }, this.sendSpacing);
+      }
+
+      _getProgress(propagated, src) {
+        return parseInt((propagated * 132) / src.length * 100) || 0;
+      }
+
+      _getPacketCount(src) {
+        return parseInt(src.length / 132);
+      }
+
+      _sendNextFrame(file) {
+        if (file.propagated == 0) {
+            this['_sendMetaFrame' + this.mode](file); // _sendMetaFrameHTTP or _sendMetaFrameSMS
+        }
+
+        if (!this._sendDataFrame(file.hash, file.propagated, file.src)) {
+          this.sending = false;
+          return;
+        }
+
+        file.propagated += 1;
+        this.notifyPath('file.propagated');
+
+        this.dispatchEvent(new CustomEvent('update', {detail: file}));
+
+        this.sendFile(file);
+      }
+
+      _sendMetaFrameSMS(file) {
+        var options = {
+          replaceLineBreaks: false,
+          android: {
+              intent: 'ACTION_SEND'
+          }
+        }
+
+        var success = () => {
+          console.log("SUCCESS: META");
+        };
+
+        var error = () => {
+          console.log("ERROR: META");
+        };
+
+        sms.send(this.endpointPhoneNumber, this._metaFrame(file), options, success, error);
+      }
+
+      _sendMetaFrameHTTP(file) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", this.endpointURL);
+        xhr.send(JSON.stringify({
+          'Body': this._metaFrame(file),
+          'From': 'device-http,' + this.deviceName
+        }));
+      }
+
+      _metaFrame(file) {
+        var count = Math.ceil(file.size / 132);
+        var hash = file.hash;
+        var name = file.name;
+        var lastModified = parseInt(file.lastModified);
+        var deviceName = file.device;
+
+        return '!' + hash + "," + count + "," + name + "," + lastModified + ',' + deviceName;
+      }
+
+      _dataFrame(hash, index, content) {
+        var start = index * 132;
+        var end = (index + 1) * 132;
+        var packet = null;
+
+        if (start > content.length) return null;
+
+        if (end > content.length) {
+          packet = content.substr(start);
+        } else {
+          packet = content.substring(start, end);
+        }
+        return hash.substr(0, 4) + base64EncodeInteger(index) + packet;
+      }
+
+      _sendDataFrame(hash, index, content) {
+        var frame = this._dataFrame(hash, index, content);
+        console.log("SEND FILE", frame);
+        if (!frame)
+          return false;
+
+        this['_sendDataFrame' + this.mode](frame);  // _sendDataFrameHTTP or _sendDataFrameSMS
+        console.log('_sendDataFrame' + this.mode, frame);
+        return true;
+      }
+
+      _sendDataFrameHTTP(frame) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", this.endpointURL);
+        xhr.send(JSON.stringify({
+          'Body': frame,
+          'From': 'device-http,' + this.deviceName
+        }));
+      }
+
+      _handleDelete() {
+        this.dispatchEvent(new CustomEvent('delete', {detail: this.file}));
+      }
+    }
+
+    window.customElements.define(FilePlate.is, FilePlate);
+  </script>
+</dom-module>
